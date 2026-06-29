@@ -96,7 +96,8 @@ h1 {
 
 .panel-header,
 .detected-box,
-.inventory-summary {
+.inventory-summary,
+.action-row {
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -214,7 +215,8 @@ th {
 
     .panel-header,
     .detected-box,
-    .inventory-summary {
+    .inventory-summary,
+    .action-row {
         align-items: stretch;
         flex-direction: column;
     }
