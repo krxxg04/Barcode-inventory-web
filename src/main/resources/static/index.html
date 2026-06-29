@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Barcode Inventory</title>
+    <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<main class="layout">
+    <section class="hero">
+        <div>
+            <p class="eyebrow">Spring Boot + ZXing JS</p>
+            <h1>Inventario local con escaneo desde la camara</h1>
+            <p class="intro">
+                Esta prueba valida que el navegador puede abrir la camara, detectar un codigo de barras
+                y guardar el inventario en <code>localStorage</code> sin usar base de datos real.
+            </p>
+        </div>
+        <div class="status-card">
+            <span class="status-dot"></span>
+            <div>
+                <strong>Estado del escaneo</strong>
+                <p id="camera-status">Camara inactiva</p>
+            </div>
+        </div>
+    </section>
+
+    <section class="panel scanner-panel">
+        <div class="panel-header">
+            <h2>Escaner</h2>
+            <button id="start-scan-btn" class="primary-button">Iniciar escaneo</button>
+        </div>
+
+        <div class="video-shell">
+            <video id="scanner-preview" playsinline></video>
+            <div class="scan-frame"></div>
+        </div>
+
+        <div class="detected-box">
+            <div>
+                <span class="label">Codigo detectado</span>
+                <strong id="detected-code">Aun no se detecta ningun codigo</strong>
+            </div>
+            <button id="save-item-btn" class="secondary-button" disabled>Guardar en inventario</button>
+        </div>
+
+        <p class="helper">
+            Si el navegador pide permisos, acepta el acceso a la camara. En movil suele funcionar mejor con HTTPS
+            o desde <code>localhost</code>.
+        </p>
+    </section>
+
+    <section class="panel inventory-panel">
+        <div class="panel-header">
+            <h2>Inventario local</h2>
+            <button id="clear-inventory-btn" class="ghost-button">Limpiar inventario</button>
+        </div>
+
+        <div class="inventory-summary">
+            <div>
+                <span class="label">Total registrados</span>
+                <strong id="inventory-count">0</strong>
+            </div>
+        </div>
+
+        <div class="table-wrapper">
+            <table>
+                <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Codigo</th>
+                    <th>Fecha</th>
+                </tr>
+                </thead>
+                <tbody id="inventory-body">
+                <tr>
+                    <td colspan="3" class="empty-state">Todavia no hay items guardados.</td>
+                </tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+</main>
+
+<script src="https://unpkg.com/@zxing/browser@latest"></script>
+<script src="/app.js"></script>
+</body>
+</html>
