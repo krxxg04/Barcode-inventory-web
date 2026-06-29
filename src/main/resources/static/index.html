@@ -29,11 +29,14 @@
     <section class="panel scanner-panel">
         <div class="panel-header">
             <h2>Escaner</h2>
-            <button id="start-scan-btn" class="primary-button">Iniciar escaneo</button>
+            <div class="action-row">
+                <button id="start-scan-btn" class="primary-button">Iniciar escaneo</button>
+                <button id="scan-image-btn" class="ghost-button" type="button">Escanear desde foto</button>
+            </div>
         </div>
 
         <div class="video-shell">
-            <video id="scanner-preview" playsinline></video>
+            <video id="scanner-preview" playsinline autoplay muted></video>
             <div class="scan-frame"></div>
         </div>
 
@@ -47,8 +50,11 @@
 
         <p class="helper">
             Si el navegador pide permisos, acepta el acceso a la camara. En movil suele funcionar mejor con HTTPS
-            o desde <code>localhost</code>.
+            o desde <code>localhost</code>. En iPhone, si no aparece el permiso, revisa el permiso de camara
+            del sitio en Safari y prueba la opcion de foto.
         </p>
+
+        <input id="image-input" type="file" accept="image/*" capture="environment" hidden>
     </section>
 
     <section class="panel inventory-panel">
