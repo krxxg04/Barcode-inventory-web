@@ -15,6 +15,7 @@ const codeReader = new ZXingBrowser.BrowserMultiFormatReader();
 
 let lastDetectedCode = "";
 let controls = null;
+let previewStream = null;
 let isScanning = false;
 let scanSessionDetected = false;
 
@@ -77,6 +78,15 @@ function stopScanning(resetStatus = false) {
         controls = null;
     }
 
+    if (previewStream) {
+        previewStream.getTracks().forEach((track) => track.stop());
+        previewStream = null;
+    }
+
+    if (videoElement.srcObject) {
+        videoElement.srcObject = null;
+    }
+
     codeReader.reset();
     isScanning = false;
     updateScanButtonLabel();
@@ -84,28 +94,6 @@ function stopScanning(resetStatus = false) {
     if (resetStatus) {
         updateCameraStatus("Camara inactiva.");
     }
-}
-
-function buildVideoConstraints() {
-    return [
-        {
-            video: {
-                facingMode: { exact: "environment" },
-                width: { ideal: 1920 },
-                height: { ideal: 1080 }
-            }
-        },
-        {
-            video: {
-                facingMode: "environment",
-                width: { ideal: 1280 },
-                height: { ideal: 720 }
-            }
-        },
-        {
-            video: true
-        }
-    ];
 }
 
 function normalizeCameraError(error) {
@@ -128,20 +116,72 @@ function normalizeCameraError(error) {
     }
 }
 
-async function beginDecodeWithConstraints() {
-    const constraintsList = buildVideoConstraints();
+async function requestPreviewStream() {
+    const attempts = [
+        {
+            video: {
+                facingMode: { ideal: "environment" },
+                width: { ideal: 1920 },
+                height: { ideal: 1080 }
+            },
+            audio: false
+        },
+        {
+            video: {
+                facingMode: "environment"
+            },
+            audio: false
+        },
+        {
+            video: true,
+            audio: false
+        }
+    ];
+
     let lastError = null;
 
-    for (const constraints of constraintsList) {
+    for (const constraints of attempts) {
         try {
-            controls = await codeReader.decodeFromConstraints(constraints, videoElement, handleScanResult);
-            return;
+            return await navigator.mediaDevices.getUserMedia(constraints);
         } catch (error) {
             lastError = error;
         }
     }
 
-    throw lastError || new Error("No fue posible iniciar la camara.");
+    throw lastError || new Error("No fue posible abrir la camara.");
+}
+
+async function resolvePreferredDeviceId() {
+    const devices = await ZXingBrowser.BrowserCodeReader.listVideoInputDevices();
+
+    if (!devices.length) {
+        return null;
+    }
+
+    const rearCamera = devices.find((device) =>
+        /back|rear|environment|wide/gi.test(device.label)
+    );
+
+    return rearCamera?.deviceId || devices[0].deviceId;
+}
+
+async function startDecoder() {
+    previewStream = await requestPreviewStream();
+    videoElement.srcObject = previewStream;
+
+    try {
+        await videoElement.play();
+    } catch (error) {
+        console.warn("No se pudo reproducir el preview automaticamente.", error);
+    }
+
+    const preferredDeviceId = await resolvePreferredDeviceId();
+
+    previewStream.getTracks().forEach((track) => track.stop());
+    previewStream = null;
+    videoElement.srcObject = null;
+
+    controls = await codeReader.decodeFromVideoDevice(preferredDeviceId, videoElement, handleScanResult);
 }
 
 function handleScanResult(result, error) {
@@ -174,7 +214,7 @@ async function startScanning() {
             throw new Error("Este navegador no soporta acceso a la camara.");
         }
 
-        await beginDecodeWithConstraints();
+        await startDecoder();
         isScanning = true;
         updateScanButtonLabel();
         updateCameraStatus("Camara activa. Apunta al codigo de barras.");
