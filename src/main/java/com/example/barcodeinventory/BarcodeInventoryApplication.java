@@ -1,13 +1,12 @@
-package com.barcodeinventoryweb;
+package com.example.barcodeinventory;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
 @SpringBootApplication
-public class BarcodeInventoryWebApplication {
+public class BarcodeInventoryApplication {
 
     public static void main(String[] args) {
-        SpringApplication.run(BarcodeInventoryWebApplication.class, args);
+        SpringApplication.run(BarcodeInventoryApplication.class, args);
     }
-
 }
