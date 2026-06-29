@@ -1,0 +1,25 @@
+name: Keep Service Alive
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping-service:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Ping deployed application
+        shell: pwsh
+        env:
+          KEEP_ALIVE_URL: ${{ vars.KEEP_ALIVE_URL }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:KEEP_ALIVE_URL)) {
+            throw "Repository variable KEEP_ALIVE_URL is not configured."
+          }
+
+          ./scripts/keep-alive.ps1 -Url $env:KEEP_ALIVE_URL
