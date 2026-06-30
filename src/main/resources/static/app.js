@@ -11,13 +11,26 @@ const cameraStatus = document.getElementById("camera-status");
 const videoElement = document.getElementById("scanner-preview");
 const imageInput = document.getElementById("image-input");
 
-const codeReader = new ZXingBrowser.BrowserMultiFormatReader();
+const BARCODE_FORMATS = [
+    "ean_13",
+    "ean_8",
+    "upc_a",
+    "upc_e",
+    "code_128",
+    "code_39",
+    "codabar",
+    "itf",
+    "qr_code"
+];
 
 let lastDetectedCode = "";
 let controls = null;
 let previewStream = null;
 let isScanning = false;
 let scanSessionDetected = false;
+let scanFrameId = null;
+let codeReader = null;
+let barcodeDetector = null;
 
 function getInventory() {
     return JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
@@ -73,8 +86,18 @@ function updateScanButtonLabel() {
 }
 
 function stopScanning(resetStatus = false) {
-    if (controls) {
-        controls.stop();
+    if (scanFrameId) {
+        cancelAnimationFrame(scanFrameId);
+        scanFrameId = null;
+    }
+
+    try {
+        if (controls && typeof controls.stop === "function") {
+            controls.stop();
+        }
+    } catch (error) {
+        console.warn("No se pudo detener el control de escaneo.", error);
+    } finally {
         controls = null;
     }
 
@@ -87,7 +110,14 @@ function stopScanning(resetStatus = false) {
         videoElement.srcObject = null;
     }
 
-    codeReader.reset();
+    if (codeReader && typeof codeReader.reset === "function") {
+        try {
+            codeReader.reset();
+        } catch (error) {
+            console.warn("No se pudo reiniciar el lector.", error);
+        }
+    }
+
     isScanning = false;
     updateScanButtonLabel();
 
@@ -116,13 +146,51 @@ function normalizeCameraError(error) {
     }
 }
 
+async function getNativeDetector() {
+    if (!("BarcodeDetector" in window)) {
+        return null;
+    }
+
+    if (barcodeDetector) {
+        return barcodeDetector;
+    }
+
+    if (typeof BarcodeDetector.getSupportedFormats === "function") {
+        const supportedFormats = await BarcodeDetector.getSupportedFormats();
+        const formats = BARCODE_FORMATS.filter((format) => supportedFormats.includes(format));
+        barcodeDetector = new BarcodeDetector({
+            formats: formats.length > 0 ? formats : undefined
+        });
+        return barcodeDetector;
+    }
+
+    barcodeDetector = new BarcodeDetector();
+    return barcodeDetector;
+}
+
+function getZxingReader() {
+    if (!window.ZXingBrowser) {
+        return null;
+    }
+
+    if (codeReader) {
+        return codeReader;
+    }
+
+    codeReader = ZXingBrowser.BrowserMultiFormatOneDReader
+        ? new ZXingBrowser.BrowserMultiFormatOneDReader()
+        : new ZXingBrowser.BrowserMultiFormatReader();
+
+    return codeReader;
+}
+
 async function requestPreviewStream() {
     const attempts = [
         {
             video: {
                 facingMode: { ideal: "environment" },
-                width: { ideal: 1920 },
-                height: { ideal: 1080 }
+                width: { ideal: 1280 },
+                height: { ideal: 720 }
             },
             audio: false
         },
@@ -151,18 +219,55 @@ async function requestPreviewStream() {
     throw lastError || new Error("No fue posible abrir la camara.");
 }
 
-async function resolvePreferredDeviceId() {
-    const devices = await ZXingBrowser.BrowserCodeReader.listVideoInputDevices();
+async function detectFromVideoWithNativeDetector() {
+    const detector = await getNativeDetector();
 
-    if (!devices.length) {
-        return null;
+    if (!detector) {
+        return false;
     }
 
-    const rearCamera = devices.find((device) =>
-        /back|rear|environment|wide/gi.test(device.label)
-    );
+    const scan = async () => {
+        if (!previewStream || scanSessionDetected) {
+            return;
+        }
 
-    return rearCamera?.deviceId || devices[0].deviceId;
+        try {
+            if (videoElement.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+                const barcodes = await detector.detect(videoElement);
+
+                if (barcodes.length > 0) {
+                    const rawValue = barcodes[0].rawValue || "";
+
+                    if (rawValue) {
+                        handleDetectedCode(rawValue);
+                        return;
+                    }
+                }
+            }
+        } catch (error) {
+            console.error(error);
+        }
+
+        scanFrameId = requestAnimationFrame(scan);
+    };
+
+    scanFrameId = requestAnimationFrame(scan);
+    return true;
+}
+
+function handleDetectedCode(code) {
+    if (!code || scanSessionDetected) {
+        return;
+    }
+
+    scanSessionDetected = true;
+    setDetectedCode(code);
+    updateCameraStatus("Codigo detectado. Revisa el valor y guardalo.");
+    stopScanning(false);
+
+    if (navigator.vibrate) {
+        navigator.vibrate(120);
+    }
 }
 
 async function startDecoder() {
@@ -175,25 +280,30 @@ async function startDecoder() {
         console.warn("No se pudo reproducir el preview automaticamente.", error);
     }
 
-    const preferredDeviceId = await resolvePreferredDeviceId();
+    const nativeStarted = await detectFromVideoWithNativeDetector();
 
-    previewStream.getTracks().forEach((track) => track.stop());
-    previewStream = null;
-    videoElement.srcObject = null;
+    if (nativeStarted) {
+        return;
+    }
 
-    controls = await codeReader.decodeFromVideoDevice(preferredDeviceId, videoElement, handleScanResult);
+    const reader = getZxingReader();
+
+    if (!reader) {
+        throw new Error("No se pudo cargar el motor de escaneo. Recarga la pagina e intenta otra vez.");
+    }
+
+    if (typeof reader.decodeFromStream === "function") {
+        controls = await reader.decodeFromStream(previewStream, videoElement, handleScanResult);
+        return;
+    }
+
+    controls = await reader.decodeFromVideoElement(videoElement, handleScanResult);
 }
 
 function handleScanResult(result, error) {
-    if (result && !scanSessionDetected) {
-        scanSessionDetected = true;
-        setDetectedCode(result.getText());
-        updateCameraStatus("Codigo detectado. Revisa el valor y guardalo.");
-        stopScanning(false);
-
-        if (navigator.vibrate) {
-            navigator.vibrate(120);
-        }
+    if (result) {
+        const text = typeof result.getText === "function" ? result.getText() : result.text;
+        handleDetectedCode(text);
     }
 
     if (error && error.name !== "NotFoundException") {
@@ -202,14 +312,14 @@ function handleScanResult(result, error) {
 }
 
 async function startScanning() {
-    stopScanning(false);
-    startScanButton.disabled = true;
-    scanImageButton.disabled = true;
-    updateCameraStatus("Solicitando permiso de camara...");
-    setDetectedCode("");
-    scanSessionDetected = false;
-
     try {
+        stopScanning(false);
+        startScanButton.disabled = true;
+        scanImageButton.disabled = true;
+        updateCameraStatus("Solicitando permiso de camara...");
+        setDetectedCode("");
+        scanSessionDetected = false;
+
         if (!navigator.mediaDevices?.getUserMedia) {
             throw new Error("Este navegador no soporta acceso a la camara.");
         }
@@ -254,26 +364,67 @@ function clearInventory() {
 }
 
 async function scanFromImageFile(file) {
-    const imageUrl = URL.createObjectURL(file);
-
     startScanButton.disabled = true;
     scanImageButton.disabled = true;
     updateCameraStatus("Analizando imagen...");
     setDetectedCode("");
 
     try {
-        const result = await codeReader.decodeFromImageUrl(imageUrl);
+        const result = await decodeImageFile(file);
         setDetectedCode(result.getText());
         updateCameraStatus("Codigo detectado desde la imagen. Listo para guardar.");
     } catch (error) {
         console.error(error);
         updateCameraStatus("No se detecto un codigo valido en la imagen.");
     } finally {
-        URL.revokeObjectURL(imageUrl);
         imageInput.value = "";
         startScanButton.disabled = false;
         scanImageButton.disabled = false;
     }
+}
+
+function decodeImageFile(file) {
+    return new Promise((resolve, reject) => {
+        const imageUrl = URL.createObjectURL(file);
+        const image = new Image();
+
+        image.onload = async () => {
+            try {
+                const detector = await getNativeDetector();
+
+                if (detector) {
+                    const barcodes = await detector.detect(image);
+
+                    if (barcodes.length > 0 && barcodes[0].rawValue) {
+                        resolve({
+                            getText: () => barcodes[0].rawValue
+                        });
+                        return;
+                    }
+                }
+
+                const reader = getZxingReader();
+
+                if (!reader) {
+                    throw new Error("No se pudo cargar el motor de escaneo para imagen.");
+                }
+
+                const result = await reader.decodeFromImageElement(image);
+                resolve(result);
+            } catch (error) {
+                reject(error);
+            } finally {
+                URL.revokeObjectURL(imageUrl);
+            }
+        };
+
+        image.onerror = () => {
+            URL.revokeObjectURL(imageUrl);
+            reject(new Error("No se pudo cargar la imagen seleccionada."));
+        };
+
+        image.src = imageUrl;
+    });
 }
 
 startScanButton.addEventListener("click", startScanning);
